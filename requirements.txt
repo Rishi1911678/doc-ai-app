@@ -1,7 +1,10 @@
 streamlit
 langchain
+langchain-core
 langchain-community
-langchain-openai
+langchain-huggingface
+langchain-ollama
+langchain-groq
 faiss-cpu
+sentence-transformers
 pypdf
-python-dotenv
