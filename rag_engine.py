@@ -10,7 +10,9 @@ from langchain_core.output_parsers import StrOutputParser
 
 class RAGPipeline:
     def __init__(self):
+        # 1. Local Free Embeddings
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        # 2. Local Free LLM via Ollama
         self.llm = ChatOllama(model="llama3.2", temperature=0.1)
         self.vector_store = None
         self.rag_chain = None
@@ -22,19 +24,20 @@ class RAGPipeline:
         loader = PyPDFLoader(file_path)
         docs = loader.load()
 
-        # Larger chunk size so code blocks don't get cut in half
+        # Semantic chunking tuned for code blocks & document summaries
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=300)
         splits = text_splitter.split_documents(docs)
 
+        # Index in local FAISS vector store
         self.vector_store = FAISS.from_documents(splits, self.embeddings)
 
-        # Retrieve top 10 chunks instead of 3
+        # Retrieve top 10 chunks to capture multi-topic PDFs fully
         retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
 
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an AI assistant analyzing an Operating Systems source code file. "
-                       "Provide a complete, comprehensive summary of ALL algorithms and programs present in the context. "
-                       "Do not skip any topic.\n\n"
+            ("system", "You are an AI technical assistant and code analyzer. "
+                       "Use the retrieved document context below to answer the user's question clearly. "
+                       "If code snippets are present, reformat them into clean, syntactically correct markdown code blocks.\n\n"
                        "Context:\n{context}"),
             ("human", "{question}"),
         ])
