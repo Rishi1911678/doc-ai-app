@@ -3,17 +3,24 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
+# Use Groq for Cloud Deployment, or Ollama for Local
+if os.environ.get("GROQ_API_KEY"):
+    from langchain_groq import ChatGroq
+    def get_llm():
+        return ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.1)
+else:
+    from langchain_ollama import ChatOllama
+    def get_llm():
+        return ChatOllama(model="llama3.2", temperature=0.1)
+
 class RAGPipeline:
     def __init__(self):
-        # 1. Local Free Embeddings
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        # 2. Local Free LLM via Ollama
-        self.llm = ChatOllama(model="llama3.2", temperature=0.1)
+        self.llm = get_llm()
         self.vector_store = None
         self.rag_chain = None
 
@@ -24,20 +31,16 @@ class RAGPipeline:
         loader = PyPDFLoader(file_path)
         docs = loader.load()
 
-        # Semantic chunking tuned for code blocks & document summaries
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=300)
         splits = text_splitter.split_documents(docs)
 
-        # Index in local FAISS vector store
         self.vector_store = FAISS.from_documents(splits, self.embeddings)
-
-        # Retrieve top 10 chunks to capture multi-topic PDFs fully
         retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
 
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an AI technical assistant and code analyzer. "
-                       "Use the retrieved document context below to answer the user's question clearly. "
-                       "If code snippets are present, reformat them into clean, syntactically correct markdown code blocks.\n\n"
+            ("system", "You are an expert AI software developer and document analyzer. "
+                       "Use the retrieved context to directly answer the user's question clearly. "
+                       "Reformat code snippets into clean markdown code blocks.\n\n"
                        "Context:\n{context}"),
             ("human", "{question}"),
         ])
