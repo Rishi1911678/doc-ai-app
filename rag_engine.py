@@ -25,7 +25,55 @@ def get_llm():
             groq_api_key=os.environ["GROQ_API_KEY"],
             temperature=0.1
         )
-    # 3. Fallback to local Ollama on Mac
+    # 3. Fallback to local Ollama on Mac (Import only when running locally)
     else:
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model="llama3.2", temperature=0.1)
+        try:
+            from langchain_ollama import ChatOllama
+            return ChatOllama(model="llama3.2", temperature=0.1)
+        except ImportError:
+            raise ImportError(
+                "Neither GROQ_API_KEY was found in secrets/env nor is langchain_ollama available."
+            )
+
+class RAGPipeline:
+    def __init__(self):
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.llm = get_llm()
+        self.vector_store = None
+        self.rag_chain = None
+
+    def _format_docs(self, docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    def process_pdf(self, file_path: str):
+        loader = PyPDFLoader(file_path)
+        docs = loader.load()
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=300)
+        splits = text_splitter.split_documents(docs)
+
+        self.vector_store = FAISS.from_documents(splits, self.embeddings)
+        retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are an expert AI software developer and document analyzer. "
+                       "Use the retrieved context to directly answer the user's question clearly. "
+                       "Reformat code snippets into clean markdown code blocks.\n\n"
+                       "Context:\n{context}"),
+            ("human", "{question}"),
+        ])
+
+        self.rag_chain = (
+            {
+                "context": retriever | self._format_docs,
+                "question": RunnablePassthrough()
+            }
+            | prompt
+            | self.llm
+            | StrOutputParser()
+        )
+
+    def query(self, question: str):
+        if not self.rag_chain:
+            return "Please upload and process a document first."
+        return self.rag_chain.invoke(question)
